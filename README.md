@@ -110,4 +110,5 @@ Stellar Pay streamlines the process of sending XLM while providing real-time fin
 
 ---
 
-<p align="center">Built for educational purposes as part of the Stellar Journey to Mastery • 2026</p># React + Vite
+<p align="center">Built for educational purposes as part of the Stellar Journey to Mastery • 2026</p>
+
