@@ -20,7 +20,6 @@ export async function getBalance(publicKey) {
   }
 }
 
-
 export async function sendPayment(sender, destination, amount) {
   //address
   if (!destination.startsWith("G") || destination.length !== 56) {
@@ -47,16 +46,26 @@ export async function sendPayment(sender, destination, amount) {
     )
     .setTimeout(30)
     .build();
-
   
-const signed = await signTransaction(transaction.toXDR(), {
-    networkPassphrase: Networks.TESTNET,
-  });
+let signed;
 
-  const tx = TransactionBuilder.fromXDR(
-    signed.signedTxXdr,
-    Networks.TESTNET
-  );
+try {
+  signed = await signTransaction(transaction.toXDR(), {
+ networkPassphrase: Networks.TESTNET,
+ });
+
+ if (!signed?.signedTxXdr) {
+ throw new Error();
+}
+
+} catch (error) {
+throw new Error("Transaction cancelled by user ");
+}
+
+const tx = TransactionBuilder.fromXDR(
+signed.signedTxXdr,
+Networks.TESTNET
+);
 
   return await server.submitTransaction(tx);
 }
