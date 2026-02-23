@@ -183,3 +183,6 @@ impl TreasuryContract {
             .ok_or(TreasuryError::ProposalNotFound)
     }
 }
+
+#[cfg(test)]
+mod test;
