@@ -1,0 +1,26 @@
+[package]
+name = "stellar-treasury"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+testutils = ["soroban-sdk/testutils"]
+
+[dependencies]
+soroban-sdk = "22.0.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+
+# NEW: Required by Stellar for secure, optimized WebAssembly deployment
+[profile.release]
+opt-level = "z"             # Optimize for smallest file size
+overflow-checks = true      # Fails securely on math overflows (Fixes your error!)
+debug = 0                   # Removes debug info to save space
+strip = "debuginfo"         # Strips symbols
+panic = "abort"             # Aborts on panic to save space
+codegen-units = 1           # Slower compilation, but smaller/faster final code
+lto = true
