@@ -1,30 +1,26 @@
 import { useState, useEffect } from "react";
-import { isConnected, requestAccess, setAllowed,} from "@stellar/freighter-api";
+import { StellarWalletsKit, WalletNetwork, allowAllModules, FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit";
+
+export const kit = new StellarWalletsKit({
+  network: WalletNetwork.TESTNET,
+  selectedWalletId: FREIGHTER_ID,
+  modules: allowAllModules(),
+});
 
 export function useWallet() {
   const [address, setAddress] = useState(null);
 
   const connect = async () => {
     try {
-      //checking freighter extension
-      const freighterDetected = await isConnected();
-
-      if (!freighterDetected) {
-        //if not found send user to the download page
-        alert("Freighter Wallet not detected! Redirecting to download page.");
-        window.open("https://www.freighter.app/", "_blank");
-        return;
-      }
-
-      await setAllowed();
-      const response = await requestAccess();
-
- if (response && response.address) {
-        setAddress(response.address);
-      }
+      await kit.openModal({
+        onWalletSelected: async (option) => {
+          kit.setWallet(option.id);
+          const { address } = await kit.getAddress();
+          setAddress(address);
+        },
+      });
     } catch (error) {
-      console.error("Connection error:", error);
-      alert("Please make sure your freighter wallet is unlocked and try again.");
+      console.error("Connection cancelled:", error);
     }
   };
 
@@ -32,20 +28,24 @@ export function useWallet() {
     setAddress(null);
   };
 
+  // 🛡️ SENSITIVITY FIX: Auto-detects if the user switches accounts in their wallet!
   useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        if (await isConnected()) {
-          const response = await requestAccess();
-          if (response && response.address) {
+    let interval;
+    if (address) {
+      interval = setInterval(async () => {
+        try {
+          const response = await kit.getAddress();
+          // If the wallet returns a new address, update the state instantly
+          if (response && response.address && response.address !== address) {
             setAddress(response.address);
           }
+        } catch (error) {
+          // Fail silently if wallet is locked or unavailable
         }
-      } catch (e) {
-      }
-    };
-    checkConnection();
-  }, []);
+      }, 2000); // Checks quietly every 2 seconds
+    }
+    return () => clearInterval(interval);
+  }, [address]);
 
   return { address, connect, disconnect };
 }
