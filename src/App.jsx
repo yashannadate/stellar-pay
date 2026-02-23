@@ -1,7 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useWallet, kit } from "./useWallet";
 import { getBalance } from "./stellar";
 import { Client, networks } from "treasury";
+
+// ─── In-Memory Balance Cache (Orange Belt) ────────────────────────────────────
+const balanceCache = {};
+const CACHE_TTL = 30_000; // 30 seconds
 
 function App() {
   const { address, connect, disconnect } = useWallet();
@@ -12,18 +16,20 @@ function App() {
   const [executeId, setExecuteId] = useState("");
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState("");
 
-  // Official Testnet XLM Token Address — extracted as named constant, not an inline magic string
+  const loadingRef = useRef(false);
+
   const XLM_TESTNET_TOKEN = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+  const CONTRACT_ID = "CCKR26GKAMQQOQAXYU6SLDAYFQ4V73NSDTXSD2BCQXP6EEMAA7URNJAS";
 
   const isValidAddress = (addr) => /^[G][A-Z2-7]{55}$/.test(addr);
   const isValidId = (id) => id !== "" && !isNaN(id) && Number(id) >= 0 && Number(id) <= 4294967295;
 
-  // FIX 1: String-based stroop conversion — avoids floating-point drift (e.g. 1.1 * 10_000_000 = 10999999.999...)
   const toStroops = (amt) => {
     try {
-      if (!amt || isNaN(amt)) return 0n;
-      const str = String(parseFloat(amt).toFixed(7)); // normalize to exactly 7 decimal places
+      if (!amt || isNaN(amt) || !isFinite(parseFloat(amt))) return 0n;
+      const str = String(parseFloat(amt).toFixed(7));
       const [whole, frac = ""] = str.split(".");
       const padded = frac.padEnd(7, "0").slice(0, 7);
       return BigInt(whole) * 10_000_000n + BigInt(padded);
@@ -56,55 +62,69 @@ function App() {
     if (!address) return null;
     return new Client({
       ...networks.testnet,
+      contractId: CONTRACT_ID,
       rpcUrl: "https://soroban-testnet.stellar.org",
       publicKey: address,
-      // FIX 2: Robust signing — logs warning if wallet SDK response shape changes unexpectedly
       signTransaction: async (xdr) => {
+        setLoadingStep("Waiting for wallet signature...");
         const response = await kit.signTransaction(xdr, {
           networkPassphrase: "Test SDF Network ; September 2015"
         });
-        const signed = response.signedXDR || response.result || response;
-        if (!response.signedXDR && !response.result) {
-          console.warn("[AUDIT] signTransaction: unexpected response shape", response);
-        }
-        return signed;
+        setLoadingStep("Broadcasting to Stellar network...");
+        return response.signedXDR || response.result || response;
       }
     });
   }, [address]);
 
+  // ─── Cached Balance Fetch ─────────────────────────────────────────────────
   const refreshBalance = useCallback(async () => {
     if (!address) return;
+    const cached = balanceCache[address];
+    const now = Date.now();
+    if (cached && now - cached.timestamp < CACHE_TTL) {
+      setBalance(cached.value);
+      return;
+    }
     try {
       const bal = await getBalance(address);
+      balanceCache[address] = { value: bal, timestamp: now };
       setBalance(bal);
     } catch (e) {
-      console.warn("Silent Sync Failure:", e);
+      console.warn("Balance fetch failed:", e);
     }
   }, [address]);
 
-  // Wipes all form data on wallet account change — prevents cross-account data leakage
   useEffect(() => {
-    refreshBalance();
+    if (address) refreshBalance();
+  }, [address, refreshBalance]);
+
+  // Clear all fields on wallet switch
+  useEffect(() => {
     setStatus(null);
     setDestination("");
     setAmount("");
     setApproveId("");
     setExecuteId("");
-  }, [address, refreshBalance]);
+    setLoadingStep("");
+  }, [address]);
 
   const runTransaction = async (actionFn, context) => {
-    if (loading || !address) return;
+    if (loadingRef.current || !address) return;
+    loadingRef.current = true;
     setLoading(true);
-    setStatus({ type: "pending", msg: `Awaiting signature for ${context}...` });
+    setLoadingStep(`Preparing ${context} transaction...`);
+    setStatus(null);
 
     try {
       const result = await actionFn();
       const hash = deepExtractHash(result);
       const idValue = resolveId(result);
 
+      // Invalidate cache after successful transaction
+      delete balanceCache[address];
+
       setStatus({
         type: "success",
-        // FIX 3: Null ID fallback — never renders "ID: null" in the UI
         msg: context === "Create"
           ? `Proposal Created! ID: ${idValue ?? "Check Explorer"}`
           : `${context} Confirmed!`,
@@ -116,14 +136,14 @@ function App() {
       if (context === "Approve") { setApproveId(""); }
       if (context === "Execute") { setExecuteId(""); }
     } catch (e) {
-      console.error(`[AUDIT] ${context} Error:`, e);
-      let errorMsg = "Blockchain execution failed.";
+      console.error(`[ERROR] ${context}:`, e);
+      let errorMsg = "Transaction failed. Please try again.";
       const errStr = e?.message?.toLowerCase() || "";
 
-      if (errStr.includes("reject") || errStr.includes("decline") || errStr.includes("cancel")) {
-        errorMsg = "Transaction rejected in wallet.";
-      } else if (errStr.includes("sending the transaction") || errStr.includes("failed to send") || (errStr.includes('"status"') && errStr.includes('"error"'))) {
-        errorMsg = "Transaction could not be broadcast. The network may be congested — please wait a moment and try again.";
+      if (errStr.includes("reject") || errStr.includes("cancel") || errStr.includes("user")) {
+        errorMsg = "Transaction cancelled in wallet.";
+      } else if (errStr.includes("network") || errStr.includes("broadcast") || errStr.includes("send")) {
+        errorMsg = "Network broadcast failed. Please try again.";
       } else if (errStr.includes("error(contract,")) {
         const code = e.message.match(/#(\d+)/)?.[1] || "Unknown";
         const errors = {
@@ -133,20 +153,19 @@ function App() {
           "4": "Invalid address or amount provided.",
           "6": "You have already approved this proposal."
         };
-        errorMsg = errors[code] || `Unexpected contract error. Code: #${code}`;
-      } else if (e?.message) {
-        errorMsg = e.message.split("Event log")[0].substring(0, 100);
+        errorMsg = errors[code] || `Contract Error #${code}. Please try again.`;
       }
       setStatus({ type: "error", msg: errorMsg });
     } finally {
+      loadingRef.current = false;
       setLoading(false);
+      setLoadingStep("");
     }
   };
 
   const handleCreate = () => {
-    if (!isValidAddress(destination)) return setStatus({ type: "error", msg: "Invalid Stellar Address format." });
+    if (!isValidAddress(destination)) return setStatus({ type: "error", msg: "Invalid Stellar address. Must start with G and be 56 characters." });
     const parsed = parseFloat(amount);
-    // FIX 4: Guard against 0, negative, NaN, and Infinity — all rejected
     if (!amount || parsed <= 0 || !isFinite(parsed)) return setStatus({ type: "error", msg: "Please enter a valid XLM amount greater than zero." });
     runTransaction(async () => {
       const tx = await treasuryClient.create_proposal({
@@ -159,7 +178,7 @@ function App() {
   };
 
   const handleApprove = () => {
-    if (!isValidId(approveId)) return setStatus({ type: "error", msg: "Valid Approve ID required." });
+    if (!isValidId(approveId)) return setStatus({ type: "error", msg: "Please enter a valid Proposal ID." });
     runTransaction(async () => {
       const tx = await treasuryClient.approve_proposal({
         approver: address,
@@ -170,12 +189,12 @@ function App() {
   };
 
   const handleExecute = () => {
-    if (!isValidId(executeId)) return setStatus({ type: "error", msg: "Valid Execute ID required." });
+    if (!isValidId(executeId)) return setStatus({ type: "error", msg: "Please enter a valid Proposal ID." });
     runTransaction(async () => {
       const tx = await treasuryClient.execute_proposal({
         executor: address,
         proposal_id: parseInt(executeId, 10),
-        token: XLM_TESTNET_TOKEN // Official Testnet XLM Token Address
+        token: XLM_TESTNET_TOKEN
       });
       return await tx.signAndSend();
     }, "Execute");
@@ -189,6 +208,9 @@ function App() {
           <p className="hero-subtitle">On-Chain Payroll Infrastructure</p>
           <button onClick={connect} className="btn btn-hero">Connect Wallet</button>
         </div>
+        <footer className="footer-text">
+          Built for Stellar Journey to Mastery 
+        </footer>
       </div>
     );
   }
@@ -202,7 +224,13 @@ function App() {
         </div>
         <div className="wallet-actions">
           <span className="wallet-pill">{address.slice(0, 6)}...{address.slice(-4)}</span>
-          <button onClick={disconnect} className="btn-disconnect-small" disabled={loading}>Logout</button>
+          <button
+            onClick={disconnect}
+            className="btn-disconnect-small"
+            disabled={loading}
+          >
+            Disconnect
+          </button>
         </div>
       </header>
 
@@ -213,15 +241,16 @@ function App() {
               <span className="label-text" style={{ textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Total Balance</span>
               <span className="badge" style={{ background: 'rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>Testnet</span>
             </div>
-            <h2 className="big-balance" style={{ fontSize: '2.5rem', margin: '10px 0', wordBreak: 'break-all' }}>{formatExactBalance(balance)}</h2>
+            <h2 className="big-balance" style={{ fontSize: '2.5rem', margin: '10px 0', wordBreak: 'break-all' }}>
+              {formatExactBalance(balance)}
+            </h2>
             <span className="currency" style={{ fontSize: '1.2rem' }}>XLM</span>
             <div className="status-indicator" style={{ marginTop: '20px', fontSize: '0.85rem' }}>
-              <span className="dot online" style={{ display: 'inline-block', width: '8px', height: '8px', background: '#4ade80', borderRadius: '50%', marginRight: '8px' }}></span>
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', background: '#4ade80', borderRadius: '50%', marginRight: '8px' }}></span>
               Wallet Connected
             </div>
           </div>
 
-          {/* Protocol Notes Sidebar */}
           <div className="card info-card" style={{ marginTop: '20px', padding: '20px', borderRadius: '12px', background: '#fff', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
             <h3 style={{ margin: '0 0 15px 0', fontSize: '1.1rem', color: '#333', fontWeight: '600' }}>Protocol Overview</h3>
             <ul style={{ paddingLeft: '0', margin: '0', color: '#555', fontSize: '0.85rem', lineHeight: '1.4', listStyle: 'none' }}>
@@ -242,96 +271,80 @@ function App() {
         </aside>
 
         <section className="content-area" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-          <div className="card form-card" style={{ display: 'flex', flexDirection: 'column', padding: '24px' }}>
-            <h2 className="card-title" style={{ marginBottom: '16px' }}>1. New Payroll Proposal</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
-              {/* FIX 5: aria-label on all inputs for screen reader accessibility */}
-              <input
-                type="text"
-                className="styled-input"
-                placeholder="Recipient Address (G...)"
-                value={destination}
-                onChange={e => setDestination(e.target.value)}
-                disabled={loading}
-                aria-label="Recipient Stellar Address"
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-              <input
-                type="number"
-                className="styled-input"
-                placeholder="Amount (XLM)"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                disabled={loading}
-                min="0"
-                step="any"
-                aria-label="Amount in XLM"
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px', width: '100%' }}>
-              <button className="btn btn-primary" onClick={handleCreate} disabled={loading} style={{ width: '100%', maxWidth: '350px', padding: '12px' }}>
-                Submit Proposal
-              </button>
-            </div>
+          <div className="card form-card">
+            <h2 className="card-title">1. New Payroll Proposal</h2>
+            <input
+              type="text"
+              className="styled-input"
+              placeholder="Recipient Address (G...)"
+              value={destination}
+              onChange={e => setDestination(e.target.value)}
+              disabled={loading}
+              aria-label="Recipient Address"
+            />
+            <input
+              type="number"
+              className="styled-input"
+              placeholder="Amount (XLM)"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              disabled={loading}
+              min="0"
+              step="any"
+              aria-label="Amount in XLM"
+            />
+            <button className="btn btn-primary" onClick={handleCreate} disabled={loading}>
+              {loading && loadingStep.toLowerCase().includes("create") ? "⏳ Processing..." : "Submit Proposal"}
+            </button>
           </div>
 
-          <div className="card form-card" style={{ display: 'flex', flexDirection: 'column', padding: '24px' }}>
-            <h2 className="card-title" style={{ marginBottom: '16px' }}>2. Sign Governance</h2>
-            <div style={{ width: '100%' }}>
-              <input
-                type="number"
-                className="styled-input"
-                placeholder="Enter Proposal ID to Approve"
-                value={approveId}
-                onChange={e => setApproveId(e.target.value)}
-                disabled={loading}
-                min="0"
-                aria-label="Proposal ID to Approve"
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px', width: '100%' }}>
-              <button className="btn btn-primary" onClick={handleApprove} disabled={loading} style={{ width: '100%', maxWidth: '350px', padding: '12px' }}>
-                Approve Proposal
-              </button>
-            </div>
+          <div className="card form-card">
+            <h2 className="card-title">2. Sign Governance</h2>
+            <input
+              type="number"
+              className="styled-input"
+              placeholder="Enter Proposal ID to Approve"
+              value={approveId}
+              onChange={e => setApproveId(e.target.value)}
+              disabled={loading}
+              min="0"
+              aria-label="Proposal ID to Approve"
+            />
+            <button className="btn btn-primary" onClick={handleApprove} disabled={loading}>
+              {loading && loadingStep.toLowerCase().includes("approve") ? "⏳ Processing..." : "Approve Proposal"}
+            </button>
           </div>
 
-          <div className="card form-card" style={{ display: 'flex', flexDirection: 'column', padding: '24px' }}>
-            <h2 className="card-title" style={{ marginBottom: '16px' }}>3. Finalize Execution</h2>
-            <div style={{ width: '100%' }}>
-              <input
-                type="number"
-                className="styled-input"
-                placeholder="Enter Proposal ID to Execute"
-                value={executeId}
-                onChange={e => setExecuteId(e.target.value)}
-                disabled={loading}
-                min="0"
-                aria-label="Proposal ID to Execute"
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px', width: '100%' }}>
-              <button className="btn btn-primary" onClick={handleExecute} disabled={loading} style={{ width: '100%', maxWidth: '350px', padding: '12px' }}>
-                Release Funds
-              </button>
-            </div>
+          <div className="card form-card">
+            <h2 className="card-title">3. Finalize Execution</h2>
+            <input
+              type="number"
+              className="styled-input"
+              placeholder="Enter Proposal ID to Execute"
+              value={executeId}
+              onChange={e => setExecuteId(e.target.value)}
+              disabled={loading}
+              min="0"
+              aria-label="Proposal ID to Execute"
+            />
+            <button className="btn btn-primary" onClick={handleExecute} disabled={loading}>
+              {loading && loadingStep.toLowerCase().includes("execute") ? "⏳ Processing..." : "Release Funds"}
+            </button>
           </div>
 
-          {status && (
-            <div className={`status-box status-${status.type}`} style={{ padding: '16px', borderRadius: '8px', border: '1px solid', marginTop: '10px' }}>
-              <p style={{ margin: 0 }}><strong>{status.type.toUpperCase()}:</strong> {status.msg}</p>
+          {/* Loading Progress Indicator */}
+          {loading && loadingStep && (
+            <div className="status-box status-pending">
+              <p>⏳ {loadingStep}</p>
+            </div>
+          )}
+
+          {/* Status Result */}
+          {status && !loading && (
+            <div className={`status-box status-${status.type}`}>
+              <p><strong>{status.type.toUpperCase()}:</strong> {status.msg}</p>
               {status.hash && (
-                <a
-                  href={`https://stellar.expert/explorer/testnet/tx/${status.hash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="view-link"
-                  style={{ display: 'inline-block', marginTop: '10px', fontWeight: 'bold' }}
-                >
+                <a href={`https://stellar.expert/explorer/testnet/tx/${status.hash}`} target="_blank" rel="noreferrer">
                   Verify Transaction ↗
                 </a>
               )}
@@ -340,8 +353,8 @@ function App() {
         </section>
       </main>
 
-      <footer className="footer-text dashboard-footer" style={{ textAlign: 'center', marginTop: '40px', padding: '20px', opacity: 0.6 }}>
-        Built as part of the Stellar Journey to Mastery • 🟡
+      <footer className="footer-text dashboard-footer">
+        Built for Stellar Journey to Mastery
       </footer>
     </div>
   );
