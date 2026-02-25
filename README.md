@@ -1,114 +1,135 @@
-# 💸 Stellar Pay
+# 🟠 Level 3 — Orange Belt
 
-![Network](https://img.shields.io/badge/Network-Stellar%20Testnet-6C47FF?style=flat-square&logo=stellar&logoColor=white)
-![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
-![Soroban](https://img.shields.io/badge/Smart%20Contract-Soroban-FF6B35?style=flat-square&logo=stellar&logoColor=white)
-![Freighter](https://img.shields.io/badge/Wallet-Freighter-6C47FF?style=flat-square&logo=googlechrome&logoColor=white)
+## Overview
 
-> On-Chain Payroll Infrastructure powered by Soroban Smart Contracts on Stellar Testnet.
+Level 3 transforms Stellar Pay from a working multi-signature dApp into a production-ready application. This stage focused on reliability, user experience, performance optimization, and testing.
 
-Stellar Pay is a progressive dApp built across multiple levels of the Stellar Builder Track. Starting as a simple XLM payment app, it has evolved into a full multi-signature treasury system powered by a Soroban smart contract on Stellar.
+The application now includes structured loading states, intelligent balance caching, automatic refresh handling, live fiat value display (USD & INR), improved wallet switching behavior, structured error handling, and full test coverage across frontend and smart contract logic.
 
----
-
-## 🚀 Belt Progression
-
-| Badge | Status | Documentation |
-|---|---|---|
-| ⚪ White Belt | ✅ Completed | [Level 1](levels-docs/level-1.md) |
-| 🟡 Yellow Belt | ✅ Completed | [Level 2](levels-docs/level-2.md) |
+The project is publicly deployed and fully functional on Testnet.
 
 ---
 
-## ⚪ Level 1 (White Belt) Highlights
+## 🔴 Live Demo
 
-- **Wallet Connection** — Freighter wallet integration for secure authentication
-- **Live Balance** — Real-time XLM balance fetched from Horizon Testnet API
-- **XLM Payments** — End-to-end payment flow to any valid Stellar address
-- **Transaction Verification** — Direct StellarExpert link after every payment
-- **Error Handling** — Address validation, amount checks, wallet rejection handling
+**[https://stellar-pay-app.vercel.app/](https://stellar-pay-app.vercel.app/)**
 
 ---
 
-## 🟡 Level 2 (Yellow Belt) Highlights
+## 🎥 Demo Video
 
-- **Multi-Wallet Integration** — StellarWalletsKit for seamless multi-wallet flows
-- **Soroban Smart Contract** — Custom Rust treasury contract deployed to Testnet
-- **Multi-Sig Governance** — 2 independent wallet approvals required before funds release
-- **3-Step Payroll Flow** — Create proposal → Approve → Execute on-chain
-- **Transaction Status** — Real-time pending/success/error tracking with hash link
-- **Contract ID:** `CCKR26GKAMQQOQAXYU6SLDAYFQ4V73NSDTXSD2BCQXP6EEMAA7URNJAS`
-
-### 📸 Level 2 Proofs
-
-**Wallet Options:**
-<img width="1919" height="1019" alt="Wallet Options" src="https://github.com/user-attachments/assets/ae87962f-5c83-4ddb-ba6e-d2084a26c6f2" />
-
-**Execute Confirmed & Verified:**
-<img width="1919" height="1017" alt="Execute Confirmed" src="https://github.com/user-attachments/assets/44c24e7a-3fe9-4ed3-bce4-c5e17d69373c" />
-
-[View on StellarExpert ↗](https://stellar.expert/explorer/testnet/tx/66c2f2987c23c9da76c245db86b1551ffb8ced5e27bb74d20bf2c0ad0fbfeddf)
-
-- **Error Types Handled:**
-  1. **Wallet Rejection** — "Transaction rejected in wallet."
-  2. **Network Failure** — "Network broadcast failed. Please try again."
-  3. **Contract Errors** — Proposal not found, already executed, already approved, insufficient approvals
+**[Watch 1-Minute Demo](https://drive.google.com/file/d/1g_jVt3vx0t-tRuzgm6CmuiPyOul5e0JI/view?usp=drivesdk)**
 
 ---
 
-## 📝 Soroban Contract
+## ✅ Submission Checklist
 
-The smart contract is located in `contracts/treasury` and follows standard Soroban project structure.
-
-- **Source:** `contracts/treasury/src/lib.rs`
-- **Tests:** `contracts/treasury/src/test.rs`
-- **Config:** `contracts/treasury/Cargo.toml`
-
----
-
-## 🗂️ Project Structure
-
-- `src/App.jsx` — Main dashboard and multi-sig flow
-- `src/stellar.js` — Horizon API balance fetching
-- `src/useWallet.jsx` — StellarWalletsKit wallet connection
-- `src/blockchain/treasury/` — Generated Soroban JS bindings
-- `contracts/treasury/` — Rust Soroban smart contract
-- `levels-docs/` — Detailed documentation for each level
+- [x] Mini-dApp fully functional on Stellar Testnet
+- [x] 8 tests passing (5 Vitest + 3 Rust)
+- [x] Public GitHub repository
+- [x] 3+ meaningful commits
+- [x] Fully deployed on Vercel
+- [x] Demo video recorded
 
 ---
 
-## ⚙️ Setup & Installation
+## 🟠 Level 3 Enhancements
 
-### Prerequisites
+### 1. Structured Loading States
 
-- [Node.js](https://nodejs.org/) v18+
-- [Freighter Wallet](https://www.freighter.app/) browser extension
-- Freighter set to **Testnet**
-- Testnet XLM — fund via [Stellar Laboratory Faucet](https://laboratory.stellar.org/#account-creator?network=test)
+All async actions (Create, Approve, Execute) now display clear step-based progress messages. The UI prevents duplicate actions while transactions are processing.
 
-### Run Locally
-```bash
-# Clone the repository
-git clone https://github.com/yashannadate/stellar-pay.git
-cd stellar-pay
+### 2. Balance Caching (30s TTL)
 
-# Install dependencies
-npm install
+Balances are cached in memory for 30 seconds to reduce redundant Horizon calls and improve performance. After expiration, fresh data is automatically fetched.
 
-# Start development server
-npm run dev
+### 3. Auto-Refresh
+
+Balance refreshes silently every 30 seconds to ensure users always see updated on-chain data.
+
+### 4. Wallet Switch Fix
+
+Resolved stale balance issue during wallet switching. Balance resets instantly and re-fetches for the new address, preventing misleading data.
+
+### 5. Live USD & INR Value Display
+
+The dashboard shows:
+
+- Current XLM rate
+- Total wallet value in USD
+- Total wallet value in INR
+
+This provides real-world context for on-chain balances.
+
+### 6. Improved Error Handling
+
+Smart contract error codes are mapped to clear user-friendly messages:
+
+- Proposal not found
+- Already executed
+- More approvals required
+- Invalid address or amount
+- Already approved
+
+Network and wallet errors are also handled consistently.
+
+---
+
+## 🧪 Test Coverage
+
+### Frontend (Vitest) — 5 Passing
+
+```
+✓ src/tests/utils.test.js (5 tests) 33ms
+  ✓ Stellar Pay Utils (5)
+    ✓ validates correct Stellar address
+    ✓ rejects invalid Stellar address
+    ✓ converts 1 XLM to stroops correctly
+    ✓ formats balance correctly
+    ✓ returns 0 for invalid balance
+Test Files  1 passed (1)
+Tests       5 passed (5)
+Duration    414ms
 ```
 
-Open `http://localhost:5173` in your browser.
+> 📸 **Screenshot:**
+> <img width="1397" height="666" alt="Vitest Results" src="https://github.com/user-attachments/assets/a1d7867e-92e2-4b03-a661-ffc193d0a336" />
+
+### Rust Contract — 3 Passing
+
+```
+running 3 tests
+test test::test_create_proposal                  ... ok
+test test::test_approve_proposal                 ... ok
+test test::test_execution_fails_without_multisig ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; finished in 0.09s
+```
+
+> 📸 **Screenshot:**
+> <img width="1590" height="857" alt="Rust Test Results" src="https://github.com/user-attachments/assets/55a91bae-f5f6-44ca-b73d-0de9793e81c1" />
+
+All tests pass successfully.
 
 ---
 
-## 🙏 Acknowledgments
+## 📸 App Screenshots
 
-- [Stellar Development Foundation](https://stellar.org/) for the Soroban platform
-- [Freighter](https://www.freighter.app/) for the wallet extension
-- [RiseIn](https://www.risein.com/) for the Stellar Journey to Mastery Program 2026
+**Connect Screen:**
+<img width="1919" height="1019" alt="Connect Screen" src="https://github.com/user-attachments/assets/a8472311-8ce0-402f-a17d-b1491dbb1952" />
+
+**Main Dashboard:**
+<img width="1919" height="1019" alt="Main Dashboard" src="https://github.com/user-attachments/assets/2cd0ffa5-07ed-4d30-bd71-a911c5c83d77" />
 
 ---
 
-<p align="center">Built for Stellar Journey to Mastery · 2026</p>
+## 🔗 Contract Details
+
+| Property | Value |
+|---|---|
+| Contract ID | `CCKR26GKAMQQOQAXYU6SLDAYFQ4V73NSDTXSD2BCQXP6EEMAA7URNJAS` |
+| Network | Stellar Testnet |
+| Explorer | [View on StellarExpert ↗](https://stellar.expert/explorer/testnet/contract/CCKR26GKAMQQOQAXYU6SLDAYFQ4V73NSDTXSD2BCQXP6EEMAA7URNJAS) |
+
+---
+
+<p align="center">🟠 Orange Belt Complete — Stellar Journey to Mastery 2026</p>
