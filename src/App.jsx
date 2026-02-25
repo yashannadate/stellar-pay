@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useWallet, kit } from "./useWallet";
-import { getBalance } from "../utils/stellar";
-import { Client, networks } from "../soroban/treasury";
+import { getBalance } from "./stellar";
+import { Client, networks } from "treasury";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const balanceCache = {};

@@ -25,3 +25,4 @@ dist-ssr
 
 # Rust build artifacts
 contracts/treasury/target
+.vercel
