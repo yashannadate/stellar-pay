@@ -1,40 +1,41 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useWallet, kit } from "./useWallet";
-import { getBalance } from "./stellar";
-import { Client, networks } from "treasury";
+import { getBalance } from "../utils/stellar";
+import { Client, networks } from "../soroban/treasury";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const balanceCache   = {};
-const CACHE_TTL      = 30_000;
-const XLM_TOKEN      = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
-const CONTRACT_ID    = "CCKR26GKAMQQOQAXYU6SLDAYFQ4V73NSDTXSD2BCQXP6EEMAA7URNJAS";
+const balanceCache = {};
+const CACHE_TTL = 30_000;
+const XLM_TOKEN = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+const CONTRACT_ID = "CCKR26GKAMQQOQAXYU6SLDAYFQ4V73NSDTXSD2BCQXP6EEMAA7URNJAS";
 const NET_PASSPHRASE = "Test SDF Network ; September 2015";
 
 // ── Logo — defined once, reused everywhere ────────────────────────────────────
-const Logo = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
-    <path d="M16 3L28 9V23L16 29L4 23V9L16 3Z" stroke="currentColor" strokeWidth="2"/>
-    <circle cx="16" cy="16" r="3.5" fill="currentColor"/>
+const Logo = ({ size = 24 }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="32" height="32" rx="8" fill="#8b5cf6" />
+    <path d="M16 8L23 12V20L16 24L9 20V12L16 8Z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+    <circle cx="16" cy="16" r="2.5" fill="white" />
   </svg>
 );
 
 function App() {
   const { address, connect, disconnect } = useWallet();
 
-  const [balance,       setBalance]       = useState("0");
-  const [xlmPrice,      setXlmPrice]      = useState(null);
-  const [destination,   setDestination]   = useState("");
-  const [amount,        setAmount]        = useState("");
-  const [approveId,     setApproveId]     = useState("");
-  const [executeId,     setExecuteId]     = useState("");
-  const [status,        setStatus]        = useState(null);
-  const [loading,       setLoading]       = useState(false);
-  const [loadingStep,   setLoadingStep]   = useState("");
-  const [funding,       setFunding]       = useState(false);
+  const [balance, setBalance] = useState("0");
+  const [xlmPrice, setXlmPrice] = useState(null);
+  const [destination, setDestination] = useState("");
+  const [amount, setAmount] = useState("");
+  const [approveId, setApproveId] = useState("");
+  const [executeId, setExecuteId] = useState("");
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState("");
+  const [funding, setFunding] = useState(false);
   const [lastCreatedId, setLastCreatedId] = useState(null);
-  const [linkCopied,    setLinkCopied]    = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
-  const loadingRef         = useRef(false);
+  const loadingRef = useRef(false);
   const lastFetchedAddress = useRef(null); // prevents stale balance on account switch
 
   // ── Validators ───────────────────────────────────────────────────────────────
@@ -131,7 +132,7 @@ function App() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res  = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd,inr");
+        const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd,inr");
         const data = await res.json();
         setXlmPrice({ usd: data?.stellar?.usd ?? null, inr: data?.stellar?.inr ?? null });
       } catch { /* non-critical, skip */ }
@@ -159,7 +160,7 @@ function App() {
     if (funding || !address) return;
     setFunding(true); setStatus(null);
     try {
-      const res  = await fetch(`https://friendbot.stellar.org?addr=${address}`);
+      const res = await fetch(`https://friendbot.stellar.org?addr=${address}`);
       const data = await res.json();
       if (res.ok || data?.successful) {
         delete balanceCache[address];
@@ -167,9 +168,11 @@ function App() {
         setStatus({ type: "success", msg: "🪙 Wallet funded! 10,000 Testnet XLM received." });
       } else {
         const e = (data?.detail || data?.extras?.result_codes?.operations?.[0] || "").toLowerCase();
-        setStatus({ type: "error", msg: e.includes("existing") || e.includes("op_already")
-          ? "Account already funded. Friendbot funds new accounts only."
-          : "Funding failed. Try again in a few minutes." });
+        setStatus({
+          type: "error", msg: e.includes("existing") || e.includes("op_already")
+            ? "Account already funded. Friendbot funds new accounts only."
+            : "Funding failed. Try again in a few minutes."
+        });
       }
     } catch {
       setStatus({ type: "error", msg: "Network error. Could not reach Friendbot." });
@@ -194,8 +197,8 @@ function App() {
     setLoadingStep(`Preparing ${context} transaction...`);
 
     try {
-      const result  = await actionFn();
-      const hash    = extractHash(result);
+      const result = await actionFn();
+      const hash = extractHash(result);
       const idValue = resolveId(result);
       delete balanceCache[address];
 
@@ -209,7 +212,7 @@ function App() {
 
       const addr = address;
       setTimeout(() => refreshBalance(addr), 2000);
-      if (context === "Create")  { setDestination(""); setAmount(""); }
+      if (context === "Create") { setDestination(""); setAmount(""); }
       if (context === "Approve") setApproveId("");
       if (context === "Execute") setExecuteId("");
 
@@ -223,9 +226,11 @@ function App() {
         msg = "Network broadcast failed. Please try again.";
       else if (s.includes("error(contract,")) {
         const code = e.message.match(/#(\d+)/)?.[1] || "?";
-        msg = ({ "1": "Proposal not found.", "2": "Already executed.",
-                 "3": "More approvals needed.", "4": "Invalid address or amount.",
-                 "6": "Already approved." })[code] || `Contract Error #${code}.`;
+        msg = ({
+          "1": "Proposal not found.", "2": "Already executed.",
+          "3": "More approvals needed.", "4": "Invalid address or amount.",
+          "6": "Already approved."
+        })[code] || `Contract Error #${code}.`;
       }
       setStatus({ type: "error", msg });
     } finally {
@@ -266,19 +271,15 @@ function App() {
   const Footer = () => (
     <footer className="app-footer">
       <div className="footer-left">
-        <div className="footer-brand">
-          <Logo size={16} />
-          <span className="brand-name">
-            <span className="title-stellar">Stellar</span><span className="title-pay">Pay</span>
-          </span>
-        </div>
-        <div className="footer-divider" />
-        <div className="footer-belt"><span className="belt-icon">🟠</span> Orange Belt</div>
+        <Logo size={16} />
+        <span className="brand-name">
+          <span className="title-stellar">Stellar</span><span className="title-pay">Pay</span>
+        </span>
+        <div className="footer-belt">🟠 ORANGE BELT</div>
       </div>
       <div className="footer-right">
         <div className="footer-credit">
-          Built with <span className="heart">🤍</span> for the{" "}
-          <span className="highlight">Rise In Stellar Journey to Mastery</span>
+          Built with 🤍 for the Rise In Stellar Journey to Mastery
         </div>
       </div>
     </footer>
@@ -294,24 +295,22 @@ function App() {
             <h1 className="hero-title">
               <span className="title-stellar">Stellar</span><span className="title-pay">Pay</span>
             </h1>
-            <p className="hero-subtitle">On-Chain Payroll Infrastructure</p>
+            <p className="hero-subtitle">ON-CHAIN PAYROLL INFRASTRUCTURE</p>
             <div className="hero-stats">
               <div className="hero-stat">
                 <span className="hero-stat-value">Multi-Sig</span>
-                <span className="hero-stat-label">2 Approvals</span>
+                <span className="hero-stat-label">2 APPROVALS</span>
               </div>
-              <div className="hero-stat-divider" />
               <div className="hero-stat">
                 <span className="hero-stat-value">On-Chain</span>
-                <span className="hero-stat-label">Soroban Contract</span>
+                <span className="hero-stat-label">SOROBAN<br />CONTRACT</span>
               </div>
-              <div className="hero-stat-divider" />
               <div className="hero-stat">
                 <span className="hero-stat-value">Fast Pay</span>
-                <span className="hero-stat-label">~5s Settlement</span>
+                <span className="hero-stat-label">~5S SETTLEMENT</span>
               </div>
             </div>
-            <button onClick={connect} className="btn btn-hero">Connect Wallet</button>
+            <button onClick={connect} className="btn btn-primary">Connect Wallet</button>
           </div>
         </div>
         <Footer />
@@ -325,17 +324,17 @@ function App() {
 
       <header className="top-nav">
         <div className="nav-brand">
-          <div className="nav-logo"><Logo size={18} /></div>
+          <div className="nav-logo"><Logo size={20} /></div>
           <h1 className="nav-title">
             <span className="title-stellar">Stellar</span><span className="title-pay">Pay</span>
           </h1>
         </div>
         <div className="wallet-actions">
           <button onClick={handleFundWallet} className="btn-fund" disabled={funding || loading}>
-            {funding ? "Funding..." : "＋ Fund Wallet"}
+            {funding ? "Funding..." : "+ Fund Wallet"}
           </button>
           <span className="wallet-pill" title={address}>{address.slice(0, 6)}...{address.slice(-4)}</span>
-          <button onClick={disconnect} className="btn-disconnect-small" disabled={loading}>Disconnect</button>
+          <button onClick={disconnect} className="btn-disconnect" disabled={loading}>Disconnect</button>
         </div>
       </header>
 
@@ -344,21 +343,21 @@ function App() {
 
           <div className="card balance-card">
             <div className="balance-header">
-              <span className="label-text">Total Balance</span>
+              <span className="label-text">TOTAL BALANCE</span>
               <span className="badge">Testnet</span>
             </div>
             <h2 className="big-balance">{fmtBalance(balance)}</h2>
-            <span className="currency">XLM</span>
+            <span className="currency">X L M</span>
             {xlmPrice?.usd && (
               <div className="usd-value">
                 <div className="price-row">
-                  <span className="price-flag">🇺🇸</span>
+                  <span className="price-flag">US</span>
                   <span>{fmtUSD(balance, xlmPrice.usd)}</span>
                   <span className="price-rate">${xlmPrice.usd.toFixed(4)}/XLM</span>
                 </div>
                 {xlmPrice?.inr && (
                   <div className="price-row">
-                    <span className="price-flag">🇮🇳</span>
+                    <span className="price-flag">IN</span>
                     <span>{fmtINR(balance, xlmPrice.inr)}</span>
                     <span className="price-rate">₹{xlmPrice.inr.toFixed(2)}/XLM</span>
                   </div>
@@ -375,16 +374,16 @@ function App() {
             <h3 className="info-title">Protocol Overview</h3>
             <div className="info-list">
               <div className="info-item">
-                <span className="info-icon">🔐</span>
+                <span className="info-icon">🔒</span>
                 <div><strong>Multisig Security</strong><p>Requires 2 separate wallet approvals to release funds.</p></div>
               </div>
               <div className="info-item">
                 <span className="info-icon">⚡</span>
-                <div><strong>Cost-Efficiency</strong><p>Network fees less than 0.002 XLM per action.</p></div>
+                <div><strong>Soroban Powered</strong><p>Network fees less than 0.003 XLM per action.</p></div>
               </div>
               <div className="info-item">
                 <span className="info-icon">🌐</span>
-                <div><strong>Stellar Testnet</strong><p>Live on-chain, verifiable transactions.</p></div>
+                <div><strong>Stellar Testnet</strong><p>Live on-chain, real transactions.</p></div>
               </div>
             </div>
           </div>
@@ -398,8 +397,8 @@ function App() {
               <span className="step-num">01</span>
               <h2 className="card-title">New Payroll Proposal</h2>
             </div>
-            <input type="text"   className="styled-input" placeholder="Recipient Address (G...)" value={destination} onChange={e => setDestination(e.target.value)} disabled={loading} autoComplete="off" spellCheck={false} aria-label="Recipient Address" />
-            <input type="number" className="styled-input" placeholder="Amount (XLM)"             value={amount}      onChange={e => setAmount(e.target.value)}      disabled={loading} min="0" step="any" aria-label="Amount in XLM" />
+            <input type="text" className="styled-input" placeholder="Recipient Address (G...)" value={destination} onChange={e => setDestination(e.target.value)} disabled={loading} autoComplete="off" spellCheck={false} aria-label="Recipient Address" />
+            <input type="number" className="styled-input" placeholder="Amount (XLM)" value={amount} onChange={e => setAmount(e.target.value)} disabled={loading} min="0" step="any" aria-label="Amount in XLM" />
             <button className="btn btn-primary" onClick={handleCreate} disabled={loading}>
               {loading && loadingStep.toLowerCase().includes("create") ? "Processing..." : "Submit Proposal →"}
             </button>
@@ -460,7 +459,6 @@ function App() {
 
         </section>
       </main>
-
       <Footer />
     </div>
   );
